@@ -1,0 +1,90 @@
+---
+title: "practical ml"
+author: "Ying Ding"
+date: "01/24/2015"
+output: html_document
+---
+
+
+From the training data, we found there are 19622 training cases with 160 variables. We extract the classes variables as the target variable to predict and it contains A,B,C,D,E five classes. Therefore, this is a multi-class prediction problem. The goal of this study is building model from the training set and apply to the testing set which contains 20 test cases.
+
+```{r declaration}
+library(caret)
+library(knitr)
+opts_chunk$set(cache=TRUE)
+data1=read.csv("/home/dingying85/Desktop/coursera/practical_machine_learning/pml-training.csv")
+data2=read.csv("/home/dingying85/Desktop/coursera/practical_machine_learning/pml-testing.csv")
+```
+
+Then we are trying to do feature engineering, we only look at variables that has at least 80% of the complete entries, not "NA" values, also we also filter away those variables that have near zero variances. After filtering variables, we have 52 variables.
+
+```{r feature_engineering}
+library(caret)
+library(MASS)
+##check later whether we should remove those variables
+set.seed(998)
+training_set=data1[,8:159]
+testing_set=data2[,8:159]
+training_label=data1[,160]
+fraction_count=apply(training_set,2,function(x) sum(is.na(x)==0))/dim(training_set)[1]
+nzv=nearZeroVar(training_set,saveMetrics = TRUE)
+index_select=which(fraction_count>0.8&nzv$nzv==FALSE)
+training_data=training_set[,index_select]
+testing_data=testing_set[,index_select]
+```
+
+We first separate our data into training data and testing data by partition into 3:1 fraction. 75% training data and 25% testing data. Then among the training data, we perform our first model linear discriminant analysis (LDA) and then predict on the remaining testing data. We calculate the accurary and found the first model gives us 70% accuracy. Then we want to try a second model to 
+achieve better performance, then we use booted tree model and tune the parameters on the 75% of the training model with 10 fold cross validation with repeat time 1, after tuning, the model which achieve the highest accuracy (shown in Figure) is selected to predict on the remaining 25% of testing data, we found it greatly outperform the single linear discriminant analysis and gives 97% accuracy. 
+
+```{r prediction}
+
+inTraining <- createDataPartition(training_label, p = .75, list = FALSE)
+training <- training_data[ inTraining,]
+testing  <- training_data[-inTraining,]
+
+Fit1 <- lda(x=training, grouping = factor(training_label[inTraining]))
+predict_label=predict(Fit1,newdata = testing)$class
+testing_label=training_label[-inTraining]
+accuracy1=sum(predict_label==testing_label)/length(testing_label)
+print(accuracy1)
+
+
+##try second model
+fitControl <- trainControl(## 10-fold CV
+                           method = "repeatedcv",
+                           number = 10,
+                           ## repeated ten times
+                           repeats = 1)
+set.seed(825)
+gbmFit1 <- train(x=training, y=factor(training_label[inTraining]),
+                 method = "gbm",
+                 trControl = fitControl,
+                 ## This last option is actually one
+                 ## for gbm() that passes through
+                 verbose = FALSE)
+gbmFit1
+predict_label1=predict(gbmFit1,newdata=testing)
+accuracy2=sum(predict_label1==testing_label)/length(testing_label)
+print(accuracy2)
+```
+
+```{r plot_gbm,fig.height=6,fig.width=6}
+ggplot(gbmFit1)
+```
+
+
+In the end, we apply the second model (tree boost model) on the 20 test cases for submission and got 100% accuracy.
+
+```{r last_predict}
+predict_test_label=predict(gbmFit1,newdata=testing_data)
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+pml_write_files(predict_test_label)
+```
+
+
